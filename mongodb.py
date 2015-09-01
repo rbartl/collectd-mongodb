@@ -3,7 +3,7 @@
 #
 
 import collectd
-from pymongo import Connection
+import pymongo
 from distutils.version import StrictVersion as V
 
 
@@ -16,6 +16,7 @@ class MongoDB(object):
         self.mongo_db = ["admin", ]
         self.mongo_user = None
         self.mongo_password = None
+        self.mongo_monitoring_level = None
 
         self.lockTotalTime = None
         self.lockTime = None
@@ -36,7 +37,7 @@ class MongoDB(object):
         v.dispatch()
 
     def do_server_status(self):
-        con = Connection(host=self.mongo_host, port=self.mongo_port, slave_okay=True)
+        con = pymongo.MongoClient(self.mongo_host, self.mongo_port)
         db = con[self.mongo_db[0]]
         if self.mongo_user and self.mongo_password:
             db.authenticate(self.mongo_user, self.mongo_password)
@@ -44,6 +45,9 @@ class MongoDB(object):
 
         version = server_status['version']
         at_least_2_4 = V(version) >= V('2.4.0')
+
+        #uptime
+        self.submit('uptime',server_status['uptime'])
 
         # operations
         for k, v in server_status['opcounters'].items():
@@ -53,20 +57,48 @@ class MongoDB(object):
         for t in ['resident', 'virtual', 'mapped']:
             self.submit('memory', t, server_status['mem'][t])
 
-        # connections
-        self.submit('connections', 'current', server_status['connections']['current'])
-	if 'available' in server_status['connections']:
-            self.submit('connections', 'available', server_status['connections']['available'])
-	if 'totalCreated' in server_status['connections']:
-            self.submit('connections', 'totalCreated', server_status['connections']['totalCreated'])
-
-	# network
-	if 'network' in server_status:
-	    for t in ['bytesIn', 'bytesOut', 'numRequests']:
+        #network
+        if 'network' in server_status:
+            for t in ['bytesIn', 'bytesOut', 'numRequests']:
                 self.submit('bytes', t, server_status['network'][t])
 
-        # locks
-	if 'lockTime' in server_status['globalLock']:
+        # connections
+        if 'current' in server_status['connections']:
+            self.submit('connections', 'current', server_status['connections']['current'])
+        if 'available' in server_status['connections']:
+            self.submit('connections', 'available', server_status['connections']['available'])
+        if 'totalCreated' in server_status['connections']:
+            self.submit('connections', 'totalCreated', server_status['connections']['totalCreated'])
+
+        #data flush
+        if 'backgroundFlushing' in server_status:
+            for t in ['flushes', 'average_ms', 'last_ms']:
+                self.submit('data_flush', t, server_status['background_flushing'][t])
+
+        #asserts
+        if 'asserts' in server_status:
+            for t in ['regular', 'warning']:
+                self.submit('asserts', t, server_status['asserts'][t])
+
+        #page faults
+        if 'extra_info' in server_status:
+            self.submit('page_faults', t, server_status['extra_info']['page_faults'])
+
+
+        #globalLocks
+        if 'globalLock' in server_status:
+            if 'totalTime' in server_status['globalLock']:
+                self.submit('globalLock_totalTime', server_status['globalLock']['totalTime'])
+            if 'currentQueue' in server_status['globalLock']:
+                for t in ['total','readers','writers']:
+                    self.submit('globalLock_currentQueue', t,server_status['globalLock']['currentQueue'][t])
+            if 'activeClients' in server_status['globalLock']:
+                for t in ['total','readers','writers']:
+                    self.submit('globalLock_activeClients', t, server_status['globalLock']['activeClients'][t])
+
+
+        #globalLocks #version 2.x
+	    if 'lockTime' in server_status['globalLock']:
             if self.lockTotalTime is not None and self.lockTime is not None:
                 if self.lockTime == server_status['globalLock']['lockTime']:
                     value = 0.0
@@ -77,7 +109,29 @@ class MongoDB(object):
             self.lockTime = server_status['globalLock']['lockTime']
         self.lockTotalTime = server_status['globalLock']['totalTime']
 
-        # indexes
+
+        #All locks
+        if 'locks' in server_status:
+            #deadlock counter
+            if 'deadlockCount' in server_status['locks']['Global']:
+                self.submit('deadlockCount','global', server_status['locks']['Global']['deadlockCount'])
+            if 'deadlockCount' in server_status['locks']['Database']:
+                self.submit('deadlockCount','database', server_status['locks']['Database']['deadlockCount'])
+            #Average Wait time to acquire global lock
+            if 'timeAcquiringMicros' and 'acquireWaitCount' in server_status['locks']['Global']:
+                for t in ['r', 'w', 'R', 'W']:
+                    total_wait_time = server_status['locks']['Global']['timeAcquiringMicros'][t]
+                    total_wait_count = server_status['locks']['Global']['acquireWaitCount'][t]
+                    self.submit('Lock_avgWaitTime','global', int(total_wait_time/total_wait_count))
+            #Average Wait time to acquire global lock
+            if 'timeAcquiringMicros' and 'acquireWaitCount' in server_status['locks']['Database']:
+                for t in ['r', 'w', 'R', 'W']:
+                    total_wait_time = server_status['locks']['Database']['timeAcquiringMicros'][t]
+                    total_wait_count = server_status['locks']['Database']['acquireWaitCount'][t]
+                    self.submit('avgWaitTime','database', int(total_wait_time/total_wait_count))
+
+    # indexes
+        ##TODO: indexCounters incompatible with 3.x
 	if 'indexCounters' in server_status:
             accesses = None
             misses = None
@@ -114,7 +168,8 @@ class MongoDB(object):
             self.submit('file_size', 'index', db_stats['indexSize'], mongo_db)
             self.submit('file_size', 'data', db_stats['dataSize'], mongo_db)
 
-        con.disconnect()
+        con.close()
+
 
     def config(self, obj):
         for node in obj.children:
@@ -128,8 +183,10 @@ class MongoDB(object):
                 self.mongo_password = node.values[0]
             elif node.key == 'Database':
                 self.mongo_db = node.values
+            elif node.key == 'Level':
+                self.mongo_monitoring_level = node.values[0]
             else:
-                collectd.warning("mongodb plugin: Unkown configuration key %s" % node.key)
+                collectd.warning("mongodb plugin: Unknown configuration key %s" % node.key)
 
 mongodb = MongoDB()
 collectd.register_read(mongodb.do_server_status)
