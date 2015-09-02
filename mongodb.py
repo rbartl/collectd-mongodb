@@ -96,18 +96,16 @@ class MongoDB(object):
                 for t in ['total','readers','writers']:
                     self.submit('globalLock_activeClients', t, server_status['globalLock']['activeClients'][t])
 
-
         #globalLocks #version 2.x
 	    if 'lockTime' in server_status['globalLock']:
-            if self.lockTotalTime is not None and self.lockTime is not None:
-                if self.lockTime == server_status['globalLock']['lockTime']:
-                    value = 0.0
-                else:
-                    value = float(server_status['globalLock']['lockTime'] - self.lockTime) * 100.0 / float(server_status['globalLock']['totalTime'] - self.lockTotalTime)
-                self.submit('percent', 'lock_ratio', value)
-
-            self.lockTime = server_status['globalLock']['lockTime']
-        self.lockTotalTime = server_status['globalLock']['totalTime']
+                if self.lockTotalTime is not None and self.lockTime is not None:
+                    if self.lockTime == server_status['globalLock']['lockTime']:
+                        value = 0.0
+                    else:
+                        value = float(server_status['globalLock']['lockTime'] - self.lockTime) * 100.0 / float(server_status['globalLock']['totalTime'] - self.lockTotalTime)
+                    self.submit('percent', 'lock_ratio', value)
+                self.lockTime = server_status['globalLock']['lockTime']
+            self.lockTotalTime = server_status['globalLock']['totalTime']
 
 
         #All locks
