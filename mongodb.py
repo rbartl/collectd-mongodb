@@ -45,6 +45,7 @@ class MongoDB(object):
 
         version = server_status['version']
         at_least_2_4 = V(version) >= V('2.4.0')
+        eq_gt_3_0 = V(version) >= V('3.0.0')
 
         #uptime
         self.submit('uptime',server_status['uptime'])
@@ -73,7 +74,7 @@ class MongoDB(object):
         #data flush
         if 'backgroundFlushing' in server_status:
             for t in ['flushes', 'average_ms', 'last_ms']:
-                self.submit('data_flush', t, server_status['background_flushing'][t])
+                self.submit('data_flush', t, server_status['backgroundFlushing'][t])
 
         #asserts
         if 'asserts' in server_status:
@@ -82,7 +83,8 @@ class MongoDB(object):
 
         #page faults
         if 'extra_info' in server_status:
-            self.submit('page_faults', t, server_status['extra_info']['page_faults'])
+            self.submit('heap', 'page_faults', server_status['extra_info']['page_faults'])
+            self.submit('heap', 'heap_usage_bytes',server_status['extra_info']['heap_usage_bytes'])
 
 
         #globalLocks
@@ -96,7 +98,7 @@ class MongoDB(object):
                 for t in ['total','readers','writers']:
                     self.submit('globalLock_activeClients', t, server_status['globalLock']['activeClients'][t])
 
-        #globalLocks #version 2.x
+        #for version 2.x
 	    if 'lockTime' in server_status['globalLock']:
                 if self.lockTotalTime is not None and self.lockTime is not None:
                     if self.lockTime == server_status['globalLock']['lockTime']:
@@ -108,8 +110,8 @@ class MongoDB(object):
             self.lockTotalTime = server_status['globalLock']['totalTime']
 
 
-        #All locks
-        if 'locks' in server_status:
+        #All locks only for version 3.x
+        if eq_gt_3_0 and 'locks' in server_status:
             #deadlock counter
             if 'deadlockCount' in server_status['locks']['Global']:
                 self.submit('deadlockCount','global', server_status['locks']['Global']['deadlockCount'])
@@ -128,9 +130,8 @@ class MongoDB(object):
                     total_wait_count = server_status['locks']['Database']['acquireWaitCount'][t]
                     self.submit('avgWaitTime','database', int(total_wait_time/total_wait_count))
 
-    # indexes
-        ##TODO: indexCounters incompatible with 3.x
-	if 'indexCounters' in server_status:
+        #indexes for version 2.x
+        if 'indexCounters' in server_status:
             accesses = None
             misses = None
             index_counters = server_status['indexCounters'] if at_least_2_4 else server_status['indexCounters']['btree']
