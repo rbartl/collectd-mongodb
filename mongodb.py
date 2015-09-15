@@ -167,17 +167,17 @@ class MongoDB(object):
             if 'timeAcquiringMicros' and 'acquireWaitCount' in server_status['locks']['Database']:
                 database_lock_wait_time = server_status['locks']['Database']['timeAcquiringMicros']
                 database_lock_wait_count = server_status['locks']['Database']['acquireWaitCount']
-            if 'r' in database_lock_wait_time and 'r' in database_lock_wait_count:
-                self.submit('databaseLock','avgWaitTime_read', int(database_lock_wait_time['r']/database_lock_wait_count['r']))
+                if 'r' in database_lock_wait_time and 'r' in database_lock_wait_count:
+                    self.submit('databaseLock','avgWaitTime_read', int(database_lock_wait_time['r']/database_lock_wait_count['r']))
 
-            if 'w' in database_lock_wait_time and 'w' in database_lock_wait_count:
-                self.submit('databaseLock','avgWaitTime_write', int(database_lock_wait_time['r']/database_lock_wait_count['w']))
+                if 'w' in database_lock_wait_time and 'w' in database_lock_wait_count:
+                    self.submit('databaseLock','avgWaitTime_write', int(database_lock_wait_time['r']/database_lock_wait_count['w']))
 
-            if 'R' in database_lock_wait_time and 'R' in database_lock_wait_count:
-                self.submit('databaseLock','avgWaitTime_intentShared', int(database_lock_wait_time['R']/database_lock_wait_count['R']))
+                if 'R' in database_lock_wait_time and 'R' in database_lock_wait_count:
+                    self.submit('databaseLock','avgWaitTime_intentShared', int(database_lock_wait_time['R']/database_lock_wait_count['R']))
 
-            if 'W' in database_lock_wait_time and 'W' in database_lock_wait_count:
-                self.submit('databaseLock','avgWaitTime_intentExclusive', int(database_lock_wait_time['W']/database_lock_wait_count['W']))
+                if 'W' in database_lock_wait_time and 'W' in database_lock_wait_count:
+                    self.submit('databaseLock','avgWaitTime_intentExclusive', int(database_lock_wait_time['W']/database_lock_wait_count['W']))
 
         #indexes for version 2.x
         if 'indexCounters' in server_status:
@@ -238,7 +238,7 @@ class MongoDB(object):
             elif node.key == 'Database':
                 self.mongo_db = node.values
             elif node.key == 'Instance':
-                self.plugin_instance = node.values
+                self.plugin_instance = node.values[0]
             else:
                 collectd.warning("mongodb plugin: Unknown configuration key %s" % node.key)
 
