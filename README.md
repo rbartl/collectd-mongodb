@@ -8,7 +8,8 @@ This plugin is a direct port of the MongoDB C plugin that will be part of collec
 
 * Collectd 4.9 or later (for the Python plugin)
 * Python 2.4 or later
-* Python MongoDB driver 2.x version 3.x are known not to work (https://github.com/mongodb/mongo-python-driver)
+* MongoDB 2.4 or later
+* PyMongo 3.x
 
 # Configuration
 
@@ -19,6 +20,7 @@ The plugin has some configuration options even though none are mandatory. This i
 * Host - hostname or IP address of the mongodb server defaults to 127.0.0.1
 * Port - the port of the mongodb server defaults to 27017
 * Database - the databases you want to monitor defaults to "admin". You can provide more than one database. Note that the first database _must_ be "admin", as it is used to perform a serverStatus()
+* Instance - Plugin Instance Name
 
 The following is an example Collectd configuration for this plugin:
 
@@ -33,8 +35,11 @@ The following is an example Collectd configuration for this plugin:
         Import "mongodb"
         <Module mongodb>
             Host "127.0.0.1"
+            Port "27017"
+            User ""
             Password "password"
             Database "admin" "db-prod" "db-dev"
+            Instance ""
         </Module>
     </Plugin>
 
