@@ -53,21 +53,44 @@ class MongoDB(object):
         at_least_2_4 = V(self.mongo_version) >= V('2.4.0')
         eq_gt_3_0 = V(self.mongo_version) >= V('3.0.0')
 
-        #cluster discovery
+        #cluster discovery,repl lag
         rs_status = {}
+        slaveDelays = {}
         try:
             rs_status = con.admin.command("replSetGetStatus")
             is_primary_node = 0
             active_nodes = 0
+            primary_node = None
+            host_node = None
+
             if 'set' in rs_status and self.cluster_name is None:
                 self.cluster_name = rs_status['set']
+ 
+            rs_conf = con.local.system.replset.find_one()
+            for member in rs_conf['members']:
+                if member.get('slaveDelay') is not None:
+                    slaveDelays[member['host']] = member.get('slaveDelay')
+                else:
+                    slaveDelays[member['host']] = 0
 
             if 'members' in rs_status:
                 for member in rs_status['members']:
                     if member['health'] == 1:
                         active_nodes += 1
-                    if member['state'] == 1:
-                        is_primary_node = 1
+                    if member['stateStr'] == "PRIMARY":
+                        primary_node = member
+                    if member.get('self') == True:
+                        host_node = member
+                if host_node["stateStr"] == "PRIMARY":
+                    data = ""
+                    maximal_lag = 0
+                    is_primary_node = 1
+                    for member in rs_status['members']:
+                        if not member['stateStr'] == "ARBITER":
+                            lastSlaveOpTime = member['optimeDate']
+                            replicationLag = abs(primary_node["optimeDate"] - lastSlaveOpTime).seconds - slaveDelays[member['name']]
+                            maximal_lag = max(maximal_lag, replicationLag)
+                    self.submit('repl','max_lag', maximal_lag)
             self.submit('repl','active_nodes', active_nodes)
             self.submit('repl','is_primary_node', is_primary_node)
         except pymongo.errors.OperationFailure, e:
