@@ -8,7 +8,6 @@ from distutils.version import StrictVersion as V
 
 
 class MongoDB(object):
-
     def __init__(self):
         self.plugin_name = "mongo"
         self.mongo_host = "127.0.0.1"
@@ -29,16 +28,16 @@ class MongoDB(object):
         v.plugin = self.plugin_name
 
         if self.cluster_name is not None and db is not None:
-            v.plugin_instance = '%s[cluster=%s, db=%s]' %(self.plugin_instance, self.cluster_name, db)
+            v.plugin_instance = '%s[cluster=%s, db=%s]' % (self.plugin_instance, self.cluster_name, db)
         elif db is not None:
-            v.plugin_instance = '%s[db=%s]' %(self.plugin_instance, db)
+            v.plugin_instance = '%s[db=%s]' % (self.plugin_instance, db)
         elif self.cluster_name is not None:
-            v.plugin_instance = '%s[cluster=%s]' %(self.plugin_instance, self.cluster_name)
+            v.plugin_instance = '%s[cluster=%s]' % (self.plugin_instance, self.cluster_name)
         else:
             v.plugin_instance = self.plugin_instance
         v.type = type
         v.type_instance = type_instance
-        v.values = [value,]
+        v.values = [value, ]
         v.dispatch()
 
     def do_server_status(self):
@@ -48,12 +47,12 @@ class MongoDB(object):
             db.authenticate(self.mongo_user, self.mongo_password)
         server_status = db.command('serverStatus')
 
-        #mongodb version
+        # mongodb version
         self.mongo_version = server_status['version']
         at_least_2_4 = V(self.mongo_version) >= V('2.4.0')
         eq_gt_3_0 = V(self.mongo_version) >= V('3.0.0')
 
-        #cluster discovery,repl lag
+        # cluster discovery,repl lag
         rs_status = {}
         slaveDelays = {}
         try:
@@ -65,7 +64,7 @@ class MongoDB(object):
 
             if 'set' in rs_status and self.cluster_name is None:
                 self.cluster_name = rs_status['set']
- 
+
             rs_conf = con.local.system.replset.find_one()
             for member in rs_conf['members']:
                 if member.get('slaveDelay') is not None:
@@ -88,109 +87,108 @@ class MongoDB(object):
                     for member in rs_status['members']:
                         if not member['stateStr'] == "ARBITER":
                             lastSlaveOpTime = member['optimeDate']
-                            replicationLag = abs(primary_node["optimeDate"] - lastSlaveOpTime).seconds - slaveDelays[member['name']]
+                            replicationLag = abs(primary_node["optimeDate"] - lastSlaveOpTime).seconds - slaveDelays[
+                                member['name']]
                             maximal_lag = max(maximal_lag, replicationLag)
                     self.submit('gauge', 'repl.max_lag', maximal_lag)
             self.submit('gauge', 'repl.active_nodes', active_nodes)
             self.submit('gauge', 'repl.is_primary_node', is_primary_node)
         except pymongo.errors.OperationFailure, e:
             if str(e).find('not running with --replSet'):
-                #should log
+                # should log
                 pass
             else:
                 pass
 
 
-        #uptime
+        # uptime
         self.submit('gauge', 'uptime', server_status['uptime'])
 
-        #operations
+        # operations
         if 'opcounters' in server_status:
             for k, v in server_status['opcounters'].items():
-                self.submit('counter', 'opcounters.'+k, v)
+                self.submit('counter', 'opcounters.' + k, v)
 
-        #memory
+        # memory
         if 'mem' in server_status:
-            for t in ['resident','virtual','mapped']:
-                self.submit('gauge', 'mem.'+t, server_status['mem'][t])
+            for t in ['resident', 'virtual', 'mapped']:
+                self.submit('gauge', 'mem.' + t, server_status['mem'][t])
 
-        #network
+        # network
         if 'network' in server_status:
             for t in ['bytesIn', 'bytesOut', 'numRequests']:
-                self.submit('counter', 'network.'+t, server_status['network'][t])
+                self.submit('counter', 'network.' + t, server_status['network'][t])
 
-        #connections
+        # connections
         if 'connections' in server_status:
             for t in ['current', 'available', 'totalCreated']:
-                self.submit('gauge', 'connections.'+t, server_status['connections'][t])
+                self.submit('gauge', 'connections.' + t, server_status['connections'][t])
 
-        #background flush
+        # background flush
         if 'backgroundFlushing' in server_status:
             self.submit('counter', 'backgroundFlushing.flushes', server_status['backgroundFlushing']['flushes'])
             self.submit('gauge', 'backgroundFlushing.average_ms', server_status['backgroundFlushing']['average_ms'])
             self.submit('gauge', 'backgroundFlushing.last_ms', server_status['backgroundFlushing']['last_ms'])
 
-        #asserts
+        # asserts
         if 'asserts' in server_status:
             for t in ['regular', 'warning']:
-                self.submit('counter', 'asserts.'+t, server_status['asserts'][t])
+                self.submit('counter', 'asserts.' + t, server_status['asserts'][t])
 
-        #page faults
+        # page faults
         if 'extra_info' in server_status:
             self.submit('counter', 'extra_info.page_faults', server_status['extra_info']['page_faults'])
             self.submit('gauge', 'extra_info.heap_usage_bytes', server_status['extra_info'][
                 'heap_usage_bytes'])
 
-
         lock_type = {'R': 'read', 'W': 'write', 'r': 'intentShared', 'w': 'intentExclusive'}
-        lock_metric_type = {'deadlockCount':'counter', 'acquireCount':'counter',
-                            'timeAcquiringMicros':'gauge', 'acquireWaitCount':'gauge',
-                            'timeLockedMicros':'counter', 'currentQueue':'gauge',
-                            'activeClients':'gauge'}
+        lock_metric_type = {'deadlockCount': 'counter', 'acquireCount': 'counter',
+                            'timeAcquiringMicros': 'gauge', 'acquireWaitCount': 'gauge',
+                            'timeLockedMicros': 'counter', 'currentQueue': 'gauge',
+                            'activeClients': 'gauge'}
 
-        #globalLocks
+        # globalLocks
         if 'globalLock' in server_status:
-            for lock_stat in ('currentQueue','activeClients'):
+            for lock_stat in ('currentQueue', 'activeClients'):
                 if lock_stat in server_status['globalLock']:
                     for k, v in server_status['globalLock'][lock_stat].items():
                         if lock_stat in lock_metric_type:
-                            self.submit(lock_metric_type[lock_stat], 'globalLock.%s.%s' %(
-                            lock_stat, k), v)
+                            self.submit(lock_metric_type[lock_stat], 'globalLock.%s.%s' % (
+                                lock_stat, k), v)
 
-        #locks for version 3.x
+        # locks for version 3.x
         if eq_gt_3_0 and 'locks' in server_status:
-            for lock_stat in ('deadlockCount','acquireCount','timeAcquiringMicros',
-                                'acquireWaitCount'):
+            for lock_stat in ('deadlockCount', 'acquireCount', 'timeAcquiringMicros',
+                              'acquireWaitCount'):
                 if lock_stat in server_status['locks']['Global']:
                     for k, v in server_status['locks']['Global'][lock_stat].items():
                         if k in lock_type and lock_stat in lock_metric_type:
-                            self.submit(lock_metric_type[lock_stat], 'lock.Global.%s.%s' %(
+                            self.submit(lock_metric_type[lock_stat], 'lock.Global.%s.%s' % (
                                 lock_stat, lock_type[k]), v)
 
-
-            for lock_stat in ('deadlockCount','acquireCount','timeAcquiringMicros',
+            for lock_stat in ('deadlockCount', 'acquireCount', 'timeAcquiringMicros',
                               'acquireWaitCount'):
                 if lock_stat in server_status['locks']['Database']:
                     for k, v in server_status['locks']['Database'][lock_stat].items():
                         if k in lock_type and lock_stat in lock_metric_type:
-                            self.submit(lock_metric_type[lock_stat], 'lock.Database.%s.%s' %(
+                            self.submit(lock_metric_type[lock_stat], 'lock.Database.%s.%s' % (
                                 lock_stat, lock_type[k]), v)
 
         elif at_least_2_4 and 'locks' in server_status:
-            #locks for version 2.x
-            for lock_stat in ('timeLockedMicros','timeAcquiringMicros'):
+            # locks for version 2.x
+            for lock_stat in ('timeLockedMicros', 'timeAcquiringMicros'):
                 if lock_stat in server_status['locks']['.']:
                     for k, v in server_status['locks']['.'][lock_stat].items():
                         if k in lock_type and lock_stat in lock_metric_type:
-                            self.submit(lock_metric_type[lock_stat], 'lock.Global.%s.%s' %(
+                            self.submit(lock_metric_type[lock_stat], 'lock.Global.%s.%s' % (
                                 lock_stat, lock_type[k]), v)
 
 
-        #indexes for version 2.x
+        # indexes for version 2.x
         if 'indexCounters' in server_status:
             index_counters = server_status['indexCounters'] if at_least_2_4 else server_status['indexCounters']['btree']
             for t in ['accesses', 'misses', 'hits', 'resets', 'missRatio']:
-                self.submit('counter', 'indexCounters.'+t, index_counters[t])
+                self.submit('counter', 'indexCounters.' + t, index_counters[t])
 
         for mongo_db in self.mongo_db:
             db = con[mongo_db]
@@ -210,13 +208,12 @@ class MongoDB(object):
             self.submit('gauge', 'dataSize', db_stats['dataSize'], mongo_db)
 
 
-        #repl operations
+        # repl operations
         if 'opcountersRepl' in server_status:
             for k, v in server_status['opcountersRepl'].items():
-                self.submit('counter', 'opcountersRepl.'+k, v)
+                self.submit('counter', 'opcountersRepl.' + k, v)
 
         con.close()
-
 
     def config(self, obj):
         for node in obj.children:
@@ -234,6 +231,7 @@ class MongoDB(object):
                 self.plugin_instance = node.values[0]
             else:
                 collectd.warning("mongodb plugin: Unknown configuration key %s" % node.key)
+
 
 mongodb = MongoDB()
 collectd.register_read(mongodb.do_server_status)
