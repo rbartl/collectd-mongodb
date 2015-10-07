@@ -90,9 +90,9 @@ class MongoDB(object):
                             lastSlaveOpTime = member['optimeDate']
                             replicationLag = abs(primary_node["optimeDate"] - lastSlaveOpTime).seconds - slaveDelays[member['name']]
                             maximal_lag = max(maximal_lag, replicationLag)
-                    self.submit('gauge','repl.max_lag', maximal_lag)
-            self.submit('gauge','repl.active_nodes', active_nodes)
-            self.submit('gauge','repl.is_primary_node', is_primary_node)
+                    self.submit('gauge', 'repl.max_lag', maximal_lag)
+            self.submit('gauge', 'repl.active_nodes', active_nodes)
+            self.submit('gauge', 'repl.is_primary_node', is_primary_node)
         except pymongo.errors.OperationFailure, e:
             if str(e).find('not running with --replSet'):
                 #should log
@@ -138,28 +138,34 @@ class MongoDB(object):
         #page faults
         if 'extra_info' in server_status:
             self.submit('counter', 'extra_info.page_faults', server_status['extra_info']['page_faults'])
-            self.submit('gauge', 'extra_info.heap_usage_bytes',server_status['extra_info']['heap_usage_bytes'])
+            self.submit('gauge', 'extra_info.heap_usage_bytes', server_status['extra_info'][
+                'heap_usage_bytes'])
+
+
+        lock_type = {'R': 'read', 'W': 'write', 'r': 'intentShared', 'w': 'intentExclusive'}
+        lock_metric_type = {'deadlockCount':'counter', 'acquireCount':'counter',
+                            'timeAcquiringMicros':'gauge', 'acquireWaitCount':'gauge',
+                            'timeLockedMicros':'counter', 'currentQueue':'gauge',
+                            'activeClients':'gauge'}
 
         #globalLocks
         if 'globalLock' in server_status:
-            for lock_state in ('currentQueue','activeClients'):
-                if lock_state in server_status['globalLock']:
-                    for t in ['total','readers','writers']:
-                        self.submit('gauge', 'globalLock.%s.%s' %(lock_state, t),server_status[
-                            'globalLock']['currentQueue'][t])
+            for lock_stat in ('currentQueue','activeClients'):
+                if lock_stat in server_status['globalLock']:
+                    for k, v in server_status['globalLock'][lock_stat].items():
+                        if lock_stat in lock_metric_type:
+                            self.submit(lock_metric_type[lock_stat], 'globalLock.%s.%s' %(
+                            lock_stat, k), v)
 
         #locks for version 3.x
         if eq_gt_3_0 and 'locks' in server_status:
-            lock_type = {'R': 'read', 'W': 'write', 'r': 'intentShared', 'w': 'intentExclusive'}
-            lock_metric_type = {'deadlockCount':'counter', 'acquireCount':'counter',
-                                'timeAcquiringMicros':'gauge', 'acquireWaitCount':'gauge'}
-
             for lock_stat in ('deadlockCount','acquireCount','timeAcquiringMicros',
                                 'acquireWaitCount'):
                 if lock_stat in server_status['locks']['Global']:
                     for k, v in server_status['locks']['Global'][lock_stat].items():
                         if k in lock_type and lock_stat in lock_metric_type:
-                            self.submit(lock_metric_type.get(lock_stat),'lock.Global.%s.%s'%(lock_stat,lock_type.get(k)), v)
+                            self.submit(lock_metric_type[lock_stat], 'lock.Global.%s.%s' %(
+                                lock_stat, lock_type[k]), v)
 
 
             for lock_stat in ('deadlockCount','acquireCount','timeAcquiringMicros',
@@ -167,19 +173,17 @@ class MongoDB(object):
                 if lock_stat in server_status['locks']['Database']:
                     for k, v in server_status['locks']['Database'][lock_stat].items():
                         if k in lock_type and lock_stat in lock_metric_type:
-                            self.submit(lock_metric_type.get(lock_stat),'lock.Database.%s.%s'%(lock_stat,lock_type.get(k)), v)
+                            self.submit(lock_metric_type[lock_stat], 'lock.Database.%s.%s' %(
+                                lock_stat, lock_type[k]), v)
 
         elif at_least_2_4 and 'locks' in server_status:
             #locks for version 2.x
-            lock_type = {'R': 'read', 'W': 'write', 'r': 'intentShared', 'w': 'intentExclusive'}
-            lock_metric_type = {'timeLockedMicros':'counter', 'timeAcquiringMicros':'gauge'}
-
-            #global locks
             for lock_stat in ('timeLockedMicros','timeAcquiringMicros'):
                 if lock_stat in server_status['locks']['.']:
                     for k, v in server_status['locks']['.'][lock_stat].items():
                         if k in lock_type and lock_stat in lock_metric_type:
-                            self.submit(lock_metric_type.get(lock_stat),'lock.Global.%s.%s'%(lock_stat,lock_type.get(k)), v)
+                            self.submit(lock_metric_type[lock_stat], 'lock.Global.%s.%s' %(
+                                lock_stat, lock_type[k]), v)
 
 
         #indexes for version 2.x
