@@ -90,9 +90,9 @@ class MongoDB(object):
                             lastSlaveOpTime = member['optimeDate']
                             replicationLag = abs(primary_node["optimeDate"] - lastSlaveOpTime).seconds - slaveDelays[member['name']]
                             maximal_lag = max(maximal_lag, replicationLag)
-                    self.submit('repl','max_lag', maximal_lag)
-            self.submit('repl','active_nodes', active_nodes)
-            self.submit('repl','is_primary_node', is_primary_node)
+                    self.submit('gauge','repl.max_lag', maximal_lag)
+            self.submit('gauge','repl.active_nodes', active_nodes)
+            self.submit('gauge','repl.is_primary_node', is_primary_node)
         except pymongo.errors.OperationFailure, e:
             if str(e).find('not running with --replSet'):
                 #should log
@@ -102,125 +102,91 @@ class MongoDB(object):
 
 
         #uptime
-        self.submit('uptime', 'uptime', server_status['uptime'])
+        self.submit('gauge', 'uptime', server_status['uptime'])
 
         #operations
-        for k, v in server_status['opcounters'].items():
-            self.submit('total_operations', k, v)
+        if 'opcounters' in server_status:
+            for k, v in server_status['opcounters'].items():
+                self.submit('counter', 'opcounters.'+k, v)
 
         #memory
         if 'mem' in server_status:
             for t in ['resident','virtual','mapped']:
-                self.submit('memory', t, server_status['mem'][t])
+                self.submit('gauge', 'mem.'+t, server_status['mem'][t])
 
         #network
         if 'network' in server_status:
             for t in ['bytesIn', 'bytesOut', 'numRequests']:
-                self.submit('bytes', t, server_status['network'][t])
+                self.submit('counter', 'network.'+t, server_status['network'][t])
 
         #connections
-        for t in ['current', 'available', 'totalCreated']:
-            self.submit('connections', t, server_status['connections'][t])
+        if 'connections' in server_status:
+            for t in ['current', 'available', 'totalCreated']:
+                self.submit('gauge', 'connections.'+t, server_status['connections'][t])
 
         #background flush
         if 'backgroundFlushing' in server_status:
-            for t in ['flushes', 'average_ms', 'last_ms']:
-                self.submit('background_flushing', t, server_status['backgroundFlushing'][t])
+            self.submit('counter', 'backgroundFlushing.flushes', server_status['backgroundFlushing']['flushes'])
+            self.submit('gauge', 'backgroundFlushing.average_ms', server_status['backgroundFlushing']['average_ms'])
+            self.submit('gauge', 'backgroundFlushing.last_ms', server_status['backgroundFlushing']['last_ms'])
 
         #asserts
         if 'asserts' in server_status:
             for t in ['regular', 'warning']:
-                self.submit('asserts', t, server_status['asserts'][t])
+                self.submit('counter', 'asserts.'+t, server_status['asserts'][t])
 
         #page faults
         if 'extra_info' in server_status:
-            self.submit('heap', 'page_faults', server_status['extra_info']['page_faults'])
-            self.submit('heap', 'heap_usage_bytes',server_status['extra_info']['heap_usage_bytes'])
-
+            self.submit('counter', 'extra_info.page_faults', server_status['extra_info']['page_faults'])
+            self.submit('gauge', 'extra_info.heap_usage_bytes',server_status['extra_info']['heap_usage_bytes'])
 
         #globalLocks
         if 'globalLock' in server_status:
-            if 'totalTime' in server_status['globalLock']:
-                self.submit('globalLock','totalTime', server_status['globalLock']['totalTime'])
-            if 'currentQueue' in server_status['globalLock']:
-                for t in ['total','readers','writers']:
-                    self.submit('globalLock', 'currentQueue_%s' %(t),server_status['globalLock']['currentQueue'][t])
-            if 'activeClients' in server_status['globalLock']:
-                for t in ['total','readers','writers']:
-                    self.submit('globalLock', 'activeClients_%s' %(t), server_status['globalLock']['activeClients'][t])
+            for lock_state in ('currentQueue','activeClients'):
+                if lock_state in server_status['globalLock']:
+                    for t in ['total','readers','writers']:
+                        self.submit('gauge', 'globalLock.%s.%s' %(lock_state, t),server_status[
+                            'globalLock']['currentQueue'][t])
 
-            #version 2.x
-            if 'lockTime' in server_status['globalLock']:
-                if self.lockTotalTime is not None and self.lockTime is not None:
-                    if self.lockTime == server_status['globalLock']['lockTime']:
-                        value = 0.0
-                    else:
-                        value = float(server_status['globalLock']['lockTime'] - self.lockTime) * 100.0 / float(server_status['globalLock']['totalTime'] - self.lockTotalTime)
-                    self.submit('percent', 'lock_ratio', value)
-                self.lockTime = server_status['globalLock']['lockTime']
-            self.lockTotalTime = server_status['globalLock']['totalTime']
-
-
-        #version 3.x
+        #locks for version 3.x
         if eq_gt_3_0 and 'locks' in server_status:
-            #deadlock counter
-            if 'deadlockCount' in server_status['locks']['Global']:
-                self.submit('deadlock','global', server_status['locks']['Global']['deadlockCount'])
-            if 'deadlockCount' in server_status['locks']['Database']:
-                self.submit('deadlock','database', server_status['locks']['Database']['deadlockCount'])
+            lock_type = {'R': 'read', 'W': 'write', 'r': 'intentShared', 'w': 'intentExclusive'}
+            lock_metric_type = {'deadlockCount':'counter', 'acquireCount':'counter',
+                                'timeAcquiringMicros':'gauge', 'acquireWaitCount':'gauge'}
 
-            #Average Wait time to acquire global lock
-            if 'timeAcquiringMicros' and 'acquireWaitCount' in server_status['locks']['Global']:
-                global_lock_wait_time = server_status['locks']['Global']['timeAcquiringMicros']
-                global_lock_wait_count = server_status['locks']['Global']['acquireWaitCount']
-                #read lock
-                if 'r' in global_lock_wait_time and 'r' in global_lock_wait_count:
-                    self.submit('globalLock','avgWaitTime_read', int(global_lock_wait_time['r']/global_lock_wait_count['r']))
-                #write lock
-                if 'w' in global_lock_wait_time and 'w' in global_lock_wait_count:
-                    self.submit('globalLock','avgWaitTime_write', int(global_lock_wait_time['r']/global_lock_wait_count['w']))
-                #Intent Share
-                if 'R' in global_lock_wait_time and 'R' in global_lock_wait_count:
-                    self.submit('globalLock','avgWaitTime_intentShared', int(global_lock_wait_time['R']/global_lock_wait_count['R']))
-                #Intent Exclusive
-                if 'W' in global_lock_wait_time and 'W' in global_lock_wait_count:
-                    self.submit('globalLock','avgWaitTime_intentExclusive', int(global_lock_wait_time['W']/global_lock_wait_count['W']))
+            for lock_stat in ('deadlockCount','acquireCount','timeAcquiringMicros',
+                                'acquireWaitCount'):
+                if lock_stat in server_status['locks']['Global']:
+                    for k, v in server_status['locks']['Global'][lock_stat].items():
+                        if k in lock_type and lock_stat in lock_metric_type:
+                            self.submit(lock_metric_type.get(lock_stat),'lock.Global.%s.%s'%(lock_stat,lock_type.get(k)), v)
 
-            #Average Wait time to acquire database lock
-            if 'timeAcquiringMicros' and 'acquireWaitCount' in server_status['locks']['Database']:
-                database_lock_wait_time = server_status['locks']['Database']['timeAcquiringMicros']
-                database_lock_wait_count = server_status['locks']['Database']['acquireWaitCount']
-                if 'r' in database_lock_wait_time and 'r' in database_lock_wait_count:
-                    self.submit('databaseLock','avgWaitTime_read', int(database_lock_wait_time['r']/database_lock_wait_count['r']))
 
-                if 'w' in database_lock_wait_time and 'w' in database_lock_wait_count:
-                    self.submit('databaseLock','avgWaitTime_write', int(database_lock_wait_time['r']/database_lock_wait_count['w']))
+            for lock_stat in ('deadlockCount','acquireCount','timeAcquiringMicros',
+                              'acquireWaitCount'):
+                if lock_stat in server_status['locks']['Database']:
+                    for k, v in server_status['locks']['Database'][lock_stat].items():
+                        if k in lock_type and lock_stat in lock_metric_type:
+                            self.submit(lock_metric_type.get(lock_stat),'lock.Database.%s.%s'%(lock_stat,lock_type.get(k)), v)
 
-                if 'R' in database_lock_wait_time and 'R' in database_lock_wait_count:
-                    self.submit('databaseLock','avgWaitTime_intentShared', int(database_lock_wait_time['R']/database_lock_wait_count['R']))
+        elif at_least_2_4 and 'locks' in server_status:
+            #locks for version 2.x
+            lock_type = {'R': 'read', 'W': 'write', 'r': 'intentShared', 'w': 'intentExclusive'}
+            lock_metric_type = {'timeLockedMicros':'counter', 'timeAcquiringMicros':'gauge'}
 
-                if 'W' in database_lock_wait_time and 'W' in database_lock_wait_count:
-                    self.submit('databaseLock','avgWaitTime_intentExclusive', int(database_lock_wait_time['W']/database_lock_wait_count['W']))
+            #global locks
+            for lock_stat in ('timeLockedMicros','timeAcquiringMicros'):
+                if lock_stat in server_status['locks']['.']:
+                    for k, v in server_status['locks']['.'][lock_stat].items():
+                        if k in lock_type and lock_stat in lock_metric_type:
+                            self.submit(lock_metric_type.get(lock_stat),'lock.Global.%s.%s'%(lock_stat,lock_type.get(k)), v)
+
 
         #indexes for version 2.x
         if 'indexCounters' in server_status:
-            accesses = None
-            misses = None
             index_counters = server_status['indexCounters'] if at_least_2_4 else server_status['indexCounters']['btree']
-
-            if self.accesses is not None:
-                accesses = index_counters['accesses'] - self.accesses
-                if accesses < 0:
-                    accesses = None
-            misses = (index_counters['misses'] or 0) - (self.misses or 0)
-            if misses < 0:
-                misses = None
-            if accesses and misses is not None:
-                self.submit('cache_ratio', 'cache_misses', int(misses * 100 / float(accesses)))
-            else:
-                self.submit('cache_ratio', 'cache_misses', 0)
-            self.accesses = index_counters['accesses']
-            self.misses = index_counters['misses']
+            for t in ['accesses', 'misses', 'hits', 'resets', 'missRatio']:
+                self.submit('counter', 'indexCounters.'+t, index_counters[t])
 
         for mongo_db in self.mongo_db:
             db = con[mongo_db]
@@ -229,21 +195,21 @@ class MongoDB(object):
             db_stats = db.command('dbstats')
 
             # stats counts
-            self.submit('counter', 'object_count', db_stats['objects'], mongo_db)
-            self.submit('counter', 'collections', db_stats['collections'], mongo_db)
-            self.submit('counter', 'num_extents', db_stats['numExtents'], mongo_db)
-            self.submit('counter', 'indexes', db_stats['indexes'], mongo_db)
+            self.submit('gauge', 'objects', db_stats['objects'], mongo_db)
+            self.submit('gauge', 'collections', db_stats['collections'], mongo_db)
+            self.submit('gauge', 'numExtents', db_stats['numExtents'], mongo_db)
+            self.submit('gauge', 'indexes', db_stats['indexes'], mongo_db)
 
             # stats sizes
-            self.submit('file_size', 'storage', db_stats['storageSize'], mongo_db)
-            self.submit('file_size', 'index', db_stats['indexSize'], mongo_db)
-            self.submit('file_size', 'data', db_stats['dataSize'], mongo_db)
+            self.submit('gauge', 'storageSize', db_stats['storageSize'], mongo_db)
+            self.submit('gauge', 'indexSize', db_stats['indexSize'], mongo_db)
+            self.submit('gauge', 'dataSize', db_stats['dataSize'], mongo_db)
 
 
         #repl operations
         if 'opcountersRepl' in server_status:
             for k, v in server_status['opcountersRepl'].items():
-                self.submit('repl_operations', k, v)
+                self.submit('counter', 'opcountersRepl.'+k, v)
 
         con.close()
 
