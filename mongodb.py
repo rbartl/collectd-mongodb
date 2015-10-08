@@ -28,7 +28,7 @@ class MongoDB(object):
         v.plugin = self.plugin_name
 
         if self.cluster_name is not None and db is not None:
-            v.plugin_instance = '%s[cluster=%s, db=%s]' % (self.plugin_instance, self.cluster_name, db)
+            v.plugin_instance = '%s[cluster=%s,db=%s]' % (self.plugin_instance, self.cluster_name, db)
         elif db is not None:
             v.plugin_instance = '%s[db=%s]' % (self.plugin_instance, db)
         elif self.cluster_name is not None:
