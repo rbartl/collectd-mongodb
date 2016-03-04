@@ -20,7 +20,6 @@ The plugin has some configuration options even though none are mandatory. This i
 * Host - hostname or IP address of the mongodb server defaults to 127.0.0.1
 * Port - the port of the mongodb server defaults to 27017
 * Database - the databases you want to monitor defaults to "admin". You can provide more than one database. Note that the first database _must_ be "admin", as it is used to perform a serverStatus()
-* Instance - Plugin Instance Name
 
 The following is an example Collectd configuration for this plugin:
 
@@ -39,7 +38,6 @@ The following is an example Collectd configuration for this plugin:
             User ""
             Password "password"
             Database "admin" "db-prod" "db-dev"
-            Instance ""
         </Module>
     </Plugin>
 
