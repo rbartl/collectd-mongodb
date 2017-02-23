@@ -17,22 +17,31 @@ class MongoDB(object):
         self.mongo_password = None
         self.mongo_version = None
         self.cluster_name = None
-        self.plugin_instance = ''
+        self.dimensions = None
 
     def submit(self, type, type_instance, value, db=None):
         v = collectd.Values()
         v.plugin = self.plugin_name
 
+        # discovered dimensions
+        discovered_dims = None
         if self.cluster_name is not None and db is not None:
-            v.plugin_instance = '%s[cluster=%s,db=%s]' % (
-                self.mongo_port, self.cluster_name, db)
-        elif db is not None:
-            v.plugin_instance = '%s[db=%s]' % (self.mongo_port, db)
+            discovered_dims = 'cluster=%s,db=%s' % (self.cluster_name, db)
         elif self.cluster_name is not None:
-            v.plugin_instance = '%s[cluster=%s]' % (
-                self.mongo_port, self.cluster_name)
+            discovered_dims = 'cluster=%s' % self.cluster_name
+        elif db is not None:
+            discovered_dims = 'db=%s' % db
+
+        # set plugin_instance
+        if self.dimensions is not None and discovered_dims is not None:
+            v.plugin_instance = '%s[%s,%s]' % (self.mongo_port,
+                                               self.dimensions,
+                                               discovered_dims)
+        elif discovered_dims is not None:
+            v.plugin_instance = '%s[%s]' % (self.mongo_port, discovered_dims)
         else:
             v.plugin_instance = '%s' % self.mongo_port
+
         v.type = type
         v.type_instance = type_instance
         v.values = [value, ]
@@ -147,9 +156,10 @@ class MongoDB(object):
         if 'extra_info' in server_status:
             self.submit('counter', 'extra_info.page_faults',
                         server_status['extra_info']['page_faults'])
-            self.submit('gauge', 'extra_info.heap_usage_bytes',
-                        server_status['extra_info'][
-                            'heap_usage_bytes'])
+            if 'heap_usage_bytes' in server_status['extra_info']:
+                self.submit('gauge', 'extra_info.heap_usage_bytes',
+                            server_status['extra_info'][
+                                'heap_usage_bytes'])
 
         lock_type = {'R': 'read', 'W': 'write', 'r': 'intentShared',
                      'w': 'intentExclusive'}
@@ -259,6 +269,8 @@ class MongoDB(object):
                 self.mongo_password = node.values[0]
             elif node.key == 'Database':
                 self.mongo_db = node.values
+            elif node.key == 'Dimensions':
+                self.dimensions = node.values[0]
             else:
                 self.log("Unknown configuration key %s" % node.key)
 
