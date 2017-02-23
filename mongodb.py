@@ -37,6 +37,8 @@ class MongoDB(object):
             v.plugin_instance = '%s[%s,%s]' % (self.mongo_port,
                                                self.dimensions,
                                                discovered_dims)
+        elif self.dimensions is not None:
+            v.plugin_instance = '%s[%s]' % (self.mongo_port, self.dimensions)
         elif discovered_dims is not None:
             v.plugin_instance = '%s[%s]' % (self.mongo_port, discovered_dims)
         else:
