@@ -248,6 +248,20 @@ class MongoDB(object):
                         db_stats['indexSize'], mongo_db)
             self.submit('gauge', 'dataSize',
                         db_stats['dataSize'], mongo_db)
+            try:
+               cols = db.collection_names()
+            except Exception, e:
+                self.log('ERROR: Connection failed for %s:%s' % (
+                    self.mongo_host, self.mongo_port))
+            for item in cols:
+              try:
+                colstat = db.command('collstats',item)
+                self.submit('gauge', 'collectionSize', colstat['size'], mongo_db + '.' + item)
+                self.submit('gauge', 'collectionCount', colstat['count'], mongo_db + '.' + item)
+              except Exception, e:
+                None
+
+
 
         # repl operations
         if 'opcountersRepl' in server_status:
